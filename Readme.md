@@ -165,10 +165,11 @@ class DynamixelControl():
         self.move_to_goal(3, 3120)
         self.move_to_goal(4, 1521)
         self.move_to_goal(5, 600)
+        self.move_to_goal(6, 3060)
 
     def position(self):
-        axisin=6
-        array = [0,0,0,0,0,0]
+        axisin=7
+        array = [0,0,0,0,0,0,0]
 
         # Added to simulate Neuromeka
         # Comment it when simulate Zeus
@@ -201,8 +202,8 @@ class DynamixelControl():
     
 def thread_position():
 
-    axisin=6
-    array = [0,0,0,0,0,0]
+    axisin=7
+    array = [0,0,0,0,0,0,0]
     tdc = DynamixelControl()
 
     while True:
@@ -216,9 +217,9 @@ def thread_position():
     return array
 
 def main():
-    # motor0, motor1, motor2, motor3, motor4, motor5 = 0,1,2,3,4,5
+    # motor0, motor1, motor2, motor3, motor4, motor5 = 0,1,2,3,4,5,6
     dc = DynamixelControl()
-    axis = 6
+    axis = 7
 
     th1 = Thread(target=thread_position,)
     th1.start()
@@ -293,13 +294,33 @@ class IndyMoveClass:
             print("workspace_angle is:", workspace_angle)
             time.sleep(1)
 
+    def position_lib_joint(self):
+        joint_angle = self.indy.get_control_state()['q']
+        new_joint_angle = [round(joint_angle[0],0),\
+                           round(joint_angle[1],0),\
+                           round(joint_angle[2],0),\
+                           round(joint_angle[3],0),\
+                           round(joint_angle[4],0),\
+                           round(joint_angle[5],0)]
+        return(new_joint_angle)
+    
+    def position_lib_eef(self):
+        joint_angle = self.indy.get_control_state()['p']
+        new_joint_angle = [round(joint_angle[0],0),\
+                           round(joint_angle[1],0),\
+                           round(joint_angle[2],0),\
+                           round(joint_angle[3],0),\
+                           round(joint_angle[4],0),\
+                           round(joint_angle[5],0)]
+        return(new_joint_angle)
+
     def home(self):
         self.indy.move_home()
 
     def teaching(self, status):
         self.indy.set_direct_teaching(enable=status)
 
-    def waypoint(self, array):
+    def waypoint_joint(self, array):
         ttarget0 = [211.2912, -54.37297, -53.52943, -3.7350252, 1.8712654, -0.015391737]
         ttarget1 = [194.84499, -56.14404, -53.699265, -0.16174921, 1.7547668, -0.015391737]
         ttarget2 = [179.61856, -57.7746, -52.574802, -1.7419313, 1.7569966, -0.015391737]
@@ -326,10 +347,17 @@ class IndyMoveClass:
         # time.sleep(3)
 
     def movej(self, array):
-        self.indy.movej(jtarget=array, vel_ratio=100, acc_ratio=300, blending_type=BlendingType.OVERRIDE)
+        # self.indy.movej(jtarget=array, vel_ratio=100, acc_ratio=100, blending_type=BlendingType.OVERRIDE)
+        self.indy.movej(jtarget=array, vel_ratio=100, acc_ratio=100, blending_type=BlendingType.OVERRIDE)
 
     def stop(self):
         self.indy.stop_motion(StopCategory.CAT2)
+
+    def movel(self, array):
+        # X,Y,Z,U,V,W
+        # Reference from image
+        self.indy.movel(ttarget=array, vel_ratio=100, acc_ratio=100, base_type=TankBaseType.ABSOLUTE)
+
 def main():
 
     im = IndyMoveClass()
@@ -355,19 +383,77 @@ if __name__ == '__main__':
 from dyna_controller import DynamixelControl
 from indy_mover import IndyMoveClass
 
+from multiprocessing import Process
 from threading import Thread
 import numpy as np
 import time
+import cv2
+import os
 
 dc_value = [0,0,0,0,0,0]
-sleep_time = 1
+sleep_time = 0.25
+im_gvalue = [0,0,0,0,0,0]
+internal_frame = cv2.imread("/home/sungwoo/workspace/bbang/teleops/Standby.jpg")
 
+def capture_camera_ex():
+    cap0 = cv2.VideoCapture(4)
+    cap0.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap0.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    count = 0
+    ret = True
+
+    while (ret):
+        ret, frame = cap0.read()
+
+        if (ret==False):
+            break
+        if(int(cap0.get(1)) % 2 == 0):
+            pause_frame = 9
+            if (count > pause_frame-1):
+                # t1 = time.time()
+                # new_frame = cv2.resize(frame,(640,480))
+                # t2 = time.time()
+                # print(t2-t1)
+                cv2.imwrite("/home/sungwoo/workspace/bbang/teleops/test_dataset/external/" + str(count - pause_frame) + " " + str(im.position_lib_joint()) + ".jpg",frame)
+            
+            count +=1
+        
+    cap0.release()
+
+def capture_camera_in():
+    global internal_frame
+
+    im = IndyMoveClass()
+
+    cap1 = cv2.VideoCapture(6)
+    cap1.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap1.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    count = 0
+    ret = True
+
+    while (ret):
+        ret, frame = cap1.read()
+        internal_frame = frame
+
+        if (ret==False):
+            break
+        if(int(cap1.get(1)) % 2== 0):
+            # new_frame = cv2.resize(frame,(640,480))
+            # + str(im.position_lib())
+            cv2.imwrite("/home/sungwoo/workspace/bbang/teleops/test_dataset/internal/" + str(count) + " " + str(im.position_lib_eef())+ ".jpg",frame)
+            count +=1
+        
+        
+    cap1.release()
+    
 def thread_position():
     global dc_value
     global sleep_time
 
-    axisin=6
-    array = [0,0,0,0,0,0]
+    axisin=7
+    array = [0,0,0,0,0,0,0]
     tdc = DynamixelControl()
 
     # Added to simulate Neuromeka
@@ -391,31 +477,37 @@ def mapping_neuromeka(array):
     global sleep_time
 
     # NeuroHome
-    new_array = [0,-15,-90,0,-75,38]
+    new_array = [0,-15,-90,0,-75,0]
     time.sleep(sleep_time)
     check_array = dc_value
 
-    # Update filter!
+    # Update filter later!
     if array == check_array:
-        new_array[0] = np.interp(array[0] + (12 * (3300-1040)/(90+90)), [1040,3300], [-90,90])
-        new_array[1] = np.interp(array[1] + (9 * (3700-3000)/(0+55)), [3000,3700], [-55,0])
-        new_array[2] = np.interp(array[3] + (-2 * (3500-2400)/(0+125)), [2400,3400], [0,-125])
-        new_array[3] = np.interp(array[4] + (-2 * (2500-2000)/(90+90)), [500,2500], [-90,90])
-        new_array[4] = np.interp(array[5] + (0 * (5700-3600)/(0+125)), [600,1900], [-75,90])
-        new_array[5] = 38
-    
-    else:
-        print("filter active")
+        new_array[0] = round(np.interp(array[0] + (12 * (3300-1040)/(90+90)), [1040,3300], [-90,90]),0)
+        new_array[1] = round(np.interp(array[1] + (15 * (3700-3000)/(0+75)), [3000,3700], [-75,0]),0)
+        new_array[2] = round(np.interp(array[3] + (-16 * (3500-2400)/(0+145)), [2400,3400], [0,-145]),0)
+        new_array[3] = round(np.interp(array[4] + (-22 * (2500-2000)/(90+100)), [500,2500], [-90,100]),0)
+        new_array[4] = round(np.interp(array[5] + (0 * (5700-3600)/(90+75)), [600,1900], [-75,90]),0)
+        new_array[5] = round(np.interp(array[6] + (-2 * (4000-2000)/(90+90)), [2000,4000], [90,-90]),0)
+    else: 
+        print("filter")
 
     return new_array
 
 def main():
     global dc_value
+    global im_gvalue
     global sleep_time
+    global internal_frame
 
-    axis= 6 
     im = IndyMoveClass()
     dc = DynamixelControl()
+
+    axis= 6
+
+    os.makedirs("test_dataset",exist_ok=True)
+    os.makedirs("test_dataset/external",exist_ok=True)
+    os.makedirs("test_dataset/internal",exist_ok=True)
 
    # Engage toque and move to position
     for i in range(axis):
@@ -423,7 +515,7 @@ def main():
 
     dc.move_to_home()
     im.home()
-    time.sleep(5)
+    time.sleep(3)
 
     for i in range(axis):
         dc.engage_pwm(i, 1, axis)
@@ -432,21 +524,28 @@ def main():
     # Comment it when simulate Zeus
     dc.engage_pwm(2,400,axis)
 
+    im.stop()
+
+    th2 = Thread(target=capture_camera_ex,)
+    th2.start()
+
+    th3 = Thread(target=capture_camera_in,)
+    th3.start()
+
     th1 = Thread(target=thread_position,)
     th1.start()
-
-    im.stop()
 
     while True:
 
         print("dc_value:", dc_value)
         im_value = mapping_neuromeka(dc_value)
-
         print("im_value:", im_value)
-        time.sleep(sleep_time)
-
-        im.movej(im_value)
         # im.waypoint(im_value)
+        im.movej(im_value)
+        im_gvalue = im_value
+
+        cv2.imshow("control",internal_frame)
+        cv2.waitKey(1)
 
 if __name__ == '__main__':
     main()
